@@ -1,0 +1,3 @@
+#pragma once
+
+#define KITE_VERSION @KITE_VERSION@
