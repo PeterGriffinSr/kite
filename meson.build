@@ -20,6 +20,9 @@ kite_lib = library(
     sources: [
         'lib/cli/cli.cpp',
         'lib/common/error.cpp',
+        'lib/frontend/lexer.cpp',
+        'lib/frontend/parser.cpp',
+        'lib/debug/debug.cpp',
         'lib/kite.cpp',
     ],
     include_directories: include_directories('lib'),

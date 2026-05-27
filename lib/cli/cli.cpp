@@ -1,5 +1,6 @@
 #include <cli/cli.hpp>
 #include <iostream>
+#include <kite.hpp>
 #include <version.hpp>
 
 void print_help() {
@@ -87,10 +88,10 @@ Options runCli(int argc, char **argv) {
   ErrorReporter reporter;
   ArgParser parser(reporter);
   Options opts = parser.parse(argc, argv);
-
-  if (opts.verbose) {
-    reporter.note("compiling " + opts.input + " -> " + opts.output);
-  }
+  
+  ErrorReporter compile_reporter;
+  compile(opts, compile_reporter);
+  compile_reporter.print_summary();
 
   reporter.print_summary();
   return opts;

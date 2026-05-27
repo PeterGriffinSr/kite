@@ -1,0 +1,135 @@
+package main
+
+import "core/fmt"
+import "core/list"
+
+public let add(a, b) {
+    a + b
+}
+
+public let area(shape) {
+    match shape {
+        Circle(r) => r * r * 3.14,
+        Rect(w, h) => w * h,
+    }
+}
+
+public let factorial(n, acc) {
+    match n {
+        0 => acc,
+        _ => factorial(n - 1, acc * n),
+    }
+}
+
+public let is_even(n) {
+    if n == 0 { True } else { is_odd(n - 1) }
+}
+
+public let is_odd(n) {
+    if n == 0 { False } else { is_even(n - 1) }
+}
+
+public let apply(f, x) {
+    f(x)
+}
+
+public let make_adder(n) {
+    |x| { x + n }
+}
+
+public let safe_div(a, b) {
+    if b == 0 {
+        None
+    } else {
+        Some(a / b)
+    }
+}
+
+public let unwrap_or(opt, default) {
+    match opt {
+        Some(v) => v,
+        None => default,
+    }
+}
+
+struct Point {
+    public x,
+    public y,
+    private id,
+
+    public new(x, y) {
+        this.x = x
+        this.y = y
+        this.id = 0
+    }
+
+    public let distance(other) {
+        let dx = this.x - other.x
+        let dy = this.y - other.y
+        sqrt(dx * dx + dy * dy)
+    }
+
+    public let translate(dx, dy) {
+        new Point(this.x + dx, this.y + dy)
+    }
+}
+
+public let length(list, acc) {
+    match list {
+        Nil => acc,
+        Cons(_, tail) => length(tail, acc + 1),
+    }
+}
+
+public let map(list, f) {
+    match list {
+        Nil => Nil,
+        Cons(head, tail) => Cons(f(head), map(tail, f)),
+    }
+}
+
+public let clamp(x, low, high) {
+    let lower = if x < low { low } else { x }
+    let result = if lower > high { high } else { lower }
+    result
+}
+
+public let describe(shape) {
+    let label = match shape {
+        Circle(r) => "circle",
+        Rect(w, h) => "rectangle",
+    }
+    let size = area(shape)
+    fmt.println(label)
+    size
+}
+
+public let main() {
+    let x = add(3, 4)
+    let y = factorial(5, 1)
+
+    let add5 = make_adder(5)
+    let z = apply(add5, 10)
+
+    let result = unwrap_or(safe_div(10, 2), 0)
+
+    let p1 = new Point(0, 0)
+    let p2 = new Point(3, 4)
+    let dist = p1.distance(p2)
+
+    let total = {
+        let a = x + y
+        let b = z + result
+        a + b
+    }
+
+    let greeting = "hello, kite"
+
+    let nums = Cons(1, Cons(2, Cons(3, Nil)))
+    let doubled = map(nums, |x| { x * 2 })
+    let len = length(nums, 0)
+
+    fmt.println(total)
+    fmt.println(dist)
+    fmt.println(len)
+}
