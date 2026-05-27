@@ -1,8 +1,8 @@
 #pragma once
+
 #include <common/span.hpp>
 #include <memory>
 #include <optional>
-#include <string>
 #include <variant>
 #include <vector>
 
@@ -159,6 +159,7 @@ struct TypeVariant {
 struct TypeDecl {
   std::string name;
   std::vector<TypeVariant> variants;
+  bool is_public;
   Span span;
 };
 
@@ -180,6 +181,7 @@ struct StructDecl {
   std::string name;
   std::vector<StructField> fields;
   std::vector<StructMethod> methods;
+  bool is_public;
   Span span;
 };
 

@@ -1,4 +1,3 @@
-#include <debug/debug.hpp>
 #include <frontend/lexer.hpp>
 #include <frontend/parser.hpp>
 #include <fstream>
@@ -32,6 +31,4 @@ void compile(const Options &opts, ErrorReporter &reporter) {
   auto ast = parser.parse();
   if (reporter.has_errors())
     return;
-
-  Debug::print_ast(ast);
 }

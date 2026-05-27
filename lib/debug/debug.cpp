@@ -175,7 +175,8 @@ static void print_expr(const Expr &expr, const std::string &prefix, bool last) {
           std::cout << my << "New(" << n.type_name << ")\n";
           print_children(n.args, ch);
         } else if constexpr (std::is_same_v<T, TypeDecl>) {
-          std::cout << my << "TypeDecl(" << n.name << ")\n";
+          std::cout << my << "TypeDecl(" << (n.is_public ? "public" : "private")
+                    << " " << n.name << ")\n";
           for (size_t i = 0; i < n.variants.size(); i++) {
             const auto &v = n.variants[i];
             bool v_last = i == n.variants.size() - 1;
@@ -192,7 +193,9 @@ static void print_expr(const Expr &expr, const std::string &prefix, bool last) {
             std::cout << ")\n";
           }
         } else if constexpr (std::is_same_v<T, StructDecl>) {
-          std::cout << my << "StructDecl(" << n.name << ")\n";
+          std::cout << my << "StructDecl("
+                    << (n.is_public ? "public" : "private") << " " << n.name
+                    << ")\n";
           size_t total = n.fields.size() + n.methods.size(), idx = 0;
           for (const auto &f : n.fields) {
             bool f_last = ++idx == total;

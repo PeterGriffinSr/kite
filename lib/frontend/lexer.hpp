@@ -1,12 +1,11 @@
 #pragma once
+
 #include <common/cursor.hpp>
 #include <common/error.hpp>
 #include <common/source.hpp>
 #include <frontend/token.hpp>
-#include <optional>
-#include <vector>
 
-enum class LexState {
+enum class State {
   Start,
   InIdentifier,
   InNumber,
@@ -35,14 +34,16 @@ private:
   size_t line_ = 1;
   size_t line_start_ = 0;
 
-  LexState state_ = LexState::Start;
+  State state_ = State::Start;
   char char_value_ = 0;
 
   void step(std::vector<Token> &tokens, std::optional<char> c);
 
-  using TokenValue = std::variant<std::pair<TokenKind, std::string>,
-                                  std::pair<std::string, LiteralKind>,
-                                  long long, double, char>;
+  using TokenValue =
+      std::variant<std::pair<TokenKind, std::string>,
+                   std::pair<std::string, LiteralKind>, long long, double, char,
+                   std::monostate
+                   >;
 
   void emit_and_reset(std::vector<Token> &tokens, TokenValue value);
   void error(const std::string &msg);

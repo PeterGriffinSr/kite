@@ -1,6 +1,6 @@
 #pragma once
+
 #include <common/span.hpp>
-#include <string>
 #include <variant>
 
 enum class TokenKind { Literal, Identifier, Keyword, Operator, Delimiter, Eof };
@@ -22,47 +22,44 @@ private:
       : kind(kind), span(span), value(std::move(value)), literal_kind(lk),
         text(std::move(text)) {}
 
+  using TokenInit = std::variant<std::pair<TokenKind, std::string>,
+                                 std::pair<std::string, LiteralKind>, long long,
+                                 double, char, std::monostate>;
+
 public:
-  static Token make(TokenKind kind, std::string text, Span span) {
-    return {kind, span, std::move(text)};
+  static Token make(TokenInit init, Span span) {
+    return std::visit(
+        [&](auto &&v) -> Token {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, std::pair<TokenKind, std::string>>)
+            return {v.first, span, std::move(v.second)};
+          else if constexpr (std::is_same_v<
+                                 T, std::pair<std::string, LiteralKind>>)
+            return {TokenKind::Literal, span, {}, std::move(v.first), v.second};
+          else if constexpr (std::is_same_v<T, long long>)
+            return {TokenKind::Literal, span, {}, v, LiteralKind::Integer};
+          else if constexpr (std::is_same_v<T, double>)
+            return {TokenKind::Literal, span, {}, v, LiteralKind::Float};
+          else if constexpr (std::is_same_v<T, char>)
+            return {TokenKind::Literal, span, {}, v, LiteralKind::Char};
+          else
+            return {TokenKind::Eof, span};
+        },
+        init);
   }
 
-  static Token make(std::string name, Span span) {
-    return {TokenKind::Identifier, span, name, std::move(name)};
-  }
-
-  static Token make(long long v, Span span) {
-    return {TokenKind::Literal, span, {}, v, LiteralKind::Integer};
-  }
-
-  static Token make(double v, Span span) {
-    return {TokenKind::Literal, span, {}, v, LiteralKind::Float};
-  }
-
-  static Token make(char v, Span span) {
-    return {TokenKind::Literal, span, {}, v, LiteralKind::Char};
-  }
-
-  static Token make(std::string v, Span span, LiteralKind lk) {
-    return {TokenKind::Literal, span, {}, std::move(v), lk};
-  }
-
-  static Token make(Span span) { return {TokenKind::Eof, span}; }
-
-  bool is(TokenKind k) const { return kind == k; }
-  bool is_keyword(const std::string &kw) const {
-    return kind == TokenKind::Keyword && text == kw;
-  }
-
-  bool is_operator(const std::string &op) const {
-    return kind == TokenKind::Operator && text == op;
-  }
-
-  bool is_delimiter(const std::string &d) const {
-    return kind == TokenKind::Delimiter && text == d;
-  }
-
-  bool is_literal(LiteralKind lk) const {
-    return kind == TokenKind::Literal && literal_kind == lk;
+  template <typename T, typename... Rest>
+  bool is(T &&first, Rest &&...rest) const {
+    if constexpr (std::is_same_v<std::decay_t<T>, LiteralKind>)
+      return kind == TokenKind::Literal && literal_kind == first;
+    else if constexpr (std::is_same_v<std::decay_t<T>, TokenKind>) {
+      if constexpr (sizeof...(rest) == 1)
+        return kind == first && text == std::get<0>(std::tie(rest...));
+      else
+        return kind == first;
+    } else {
+      static_assert(sizeof(T) == 0,
+                    "is() requires TokenKind or LiteralKind as first");
+    }
   }
 };

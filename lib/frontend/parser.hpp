@@ -1,10 +1,10 @@
 #pragma once
+
 #include <common/cursor.hpp>
 #include <common/error.hpp>
 #include <common/source.hpp>
 #include <frontend/ast.hpp>
 #include <frontend/token.hpp>
-#include <stdexcept>
 #include <vector>
 
 class Parser : private Cursor<Token> {
@@ -27,8 +27,8 @@ private:
   ExprPtr parse_top_level();
   ExprPtr parse_package();
   ExprPtr parse_import();
-  ExprPtr parse_type_decl();
-  ExprPtr parse_struct_decl();
+  ExprPtr parse_type_decl(bool is_public);
+  ExprPtr parse_struct_decl(bool is_public);
   ExprPtr parse_let(bool is_public);
   ExprPtr parse_expr();
   ExprPtr parse_assignment();
@@ -47,79 +47,32 @@ private:
   Param parse_param();
   std::vector<Param> parse_param_list();
 
-  bool check(TokenKind k) const { return current().kind == k; }
-
-  bool check_keyword(const std::string &s) const {
-    return current().is_keyword(s);
+  template <typename T, typename... Rest>
+  bool check(T &&first, Rest &&...rest) const {
+    return current().is(std::forward<T>(first), std::forward<Rest>(rest)...);
   }
 
-  bool check_operator(const std::string &s) const {
-    return current().is_operator(s);
-  }
-
-  bool check_delimiter(const std::string &s) const {
-    return current().is_delimiter(s);
-  }
-
-  bool match_keyword(const std::string &s) {
-    if (!check_keyword(s))
+  template <typename T, typename... Rest>
+  bool match(T &&first, Rest &&...rest) {
+    if (!check(std::forward<T>(first), std::forward<Rest>(rest)...))
       return false;
     advance();
     return true;
   }
 
-  bool match_operator(const std::string &s) {
-    if (!check_operator(s))
-      return false;
-    advance();
-    return true;
-  }
-
-  bool match_delimiter(const std::string &s) {
-    if (!check_delimiter(s))
-      return false;
-    advance();
-    return true;
-  }
-
-  Token expect_keyword(const std::string &kw) {
-    if (!check_keyword(kw)) {
-      error("expected '" + kw + "'", current());
-      throw std::runtime_error("parse error");
-    }
-    return advance();
-  }
-
-  Token expect_delimiter(const std::string &d) {
-    if (!check_delimiter(d)) {
-      error("expected '" + d + "'", current());
-      throw std::runtime_error("parse error");
-    }
-    return advance();
-  }
-
-  Token expect_operator(const std::string &op) {
-    if (!check_operator(op)) {
-      error("expected '" + op + "'", current());
-      throw std::runtime_error("parse error");
-    }
-    return advance();
-  }
-
-  Token expect_identifier() {
-    if (!check(TokenKind::Identifier)) {
-      error("expected identifier", current());
-      throw std::runtime_error("parse error");
-    }
+  template <typename T, typename... Rest>
+  Token expect(T &&first, Rest &&...rest) {
+    if (!check(std::forward<T>(first), std::forward<Rest>(rest)...))
+      error("expected ...", current());
     return advance();
   }
 
   bool is_at_end() const { return current().kind == TokenKind::Eof; }
 
   bool peek_is_method() {
-    return check_keyword("let") && pos_ + 1 < size_ &&
+    return check(TokenKind::Keyword, "let") && pos_ + 1 < size_ &&
            data_[pos_ + 1].kind == TokenKind::Identifier &&
-           data_[pos_ + 2].is_delimiter("(");
+           data_[pos_ + 2].is(TokenKind::Delimiter, "(");
   }
 
   void error(const std::string &msg, const Token &tok);

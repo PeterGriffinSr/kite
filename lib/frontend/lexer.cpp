@@ -1,12 +1,10 @@
-#include <cctype>
 #include <frontend/lexer.hpp>
-#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
 static const std::unordered_set<std::string> KEYWORDS = {
-    "let",    "type",    "struct", "match",   "if",  "else",
-    "import", "package", "public", "private", "new", "this",
+    "let",    "type",    "struct", "match", "if",   "else",
+    "import", "package", "public", "new",   "this",
 };
 
 static const std::unordered_map<char, std::string> DELIMITERS = {
@@ -14,19 +12,30 @@ static const std::unordered_map<char, std::string> DELIMITERS = {
     {',', ","}, {'.', "."}, {':', ":"}, {';', ";"},
 };
 
+static const std::unordered_map<char, std::string> SIMPLE_OPERATORS = {
+    {'+', "+"},
+    {'*', "*"},
+    {'%', "%"},
+    {'&', "&"},
+};
+
+static const std::unordered_set<char> COMPOUND_OPERATORS = {
+    '-', '=', '!', '<', '>', '|',
+};
+
 std::vector<Token> Lexer::tokenize() {
   std::vector<Token> tokens;
   while (!is_at_end())
     step(tokens, advance());
   step(tokens, std::nullopt);
-  emit(tokens, current_span());
+  tokens.push_back(Token::make(std::monostate{}, current_span()));
   return tokens;
 }
 
 void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
   switch (state_) {
 
-  case LexState::Start: {
+  case State::Start: {
     if (!c)
       return;
 
@@ -37,37 +46,43 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
       emit_and_reset(tokens, std::pair{TokenKind::Operator, std::move(s)});
     };
 
-    const std::unordered_map<char, std::function<std::string()>> OPERATORS = {
-        {'+', [&] { return "+"; }},
-        {'*', [&] { return "*"; }},
-        {'%', [&] { return "%"; }},
-        {'&', [&] { return "&"; }},
-        {'-', [&] { return match('>') ? "->" : "-"; }},
-        {'=', [&] { return match('=')   ? "=="
-                           : match('>') ? "=>"
-                                        : "="; }},
-        {'!', [&] { return match('=') ? "!=" : "!"; }},
-        {'<', [&] { return match('=') ? "<=" : "<"; }},
-        {'>', [&] { return match('=') ? ">=" : ">"; }},
-        {'|', [&] { return match('|') ? "||" : "|"; }},
-    };
-
     if (auto it = DELIMITERS.find(*c); it != DELIMITERS.end())
       delim(it->second);
-    else if (auto it = OPERATORS.find(*c); it != OPERATORS.end())
-      op(it->second());
-    else
+    else if (auto it = SIMPLE_OPERATORS.find(*c); it != SIMPLE_OPERATORS.end())
+      op(it->second);
+    else if (COMPOUND_OPERATORS.count(*c)) {
+      switch (*c) {
+      case '-':
+        op(match('>') ? "->" : "-");
+        break;
+      case '=':
+        op(match('=') ? "==" : match('>') ? "=>" : "=");
+        break;
+      case '!':
+        op(match('=') ? "!=" : "!");
+        break;
+      case '<':
+        op(match('=') ? "<=" : "<");
+        break;
+      case '>':
+        op(match('=') ? ">=" : ">");
+        break;
+      case '|':
+        op(match('|') ? "||" : "|");
+        break;
+      }
+    } else
       switch (*c) {
       case '(':
         !is_at_end() && peek() == ')' ? (advance(), delim("()")) : delim("(");
         break;
       case '_':
         (std::isalnum(peek()) || peek() == '_')
-            ? (void)(state_ = LexState::InIdentifier)
+            ? (void)(state_ = State::InIdentifier)
             : delim("_");
         break;
       case '/':
-        match('/') ? (void)(state_ = LexState::InLineComment) : op("/");
+        match('/') ? (void)(state_ = State::InLineComment) : op("/");
         break;
       case ' ':
       case '\r':
@@ -80,24 +95,24 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
         start_ = pos_;
         break;
       case '"':
-        state_ = LexState::InString;
+        state_ = State::InString;
         break;
       case '\'':
         (is_at_end() || peek() == '\n') ? error("unterminated char literal")
-                                        : (void)(state_ = LexState::InChar);
+                                        : (void)(state_ = State::InChar);
         break;
       default:
         if (std::isdigit(*c))
-          state_ = LexState::InNumber;
+          state_ = State::InNumber;
         else if (std::isalpha(*c))
-          state_ = LexState::InIdentifier;
+          state_ = State::InIdentifier;
         else
           error("unexpected character '" + std::string(1, *c) + "'");
         break;
       }
     break;
   }
-  case LexState::InIdentifier: {
+  case State::InIdentifier: {
     if (c && (std::isalnum(*c) || *c == '_'))
       return;
     if (c)
@@ -108,11 +123,11 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
     emit_and_reset(tokens, std::pair{kind, std::move(text)});
     break;
   }
-  case LexState::InNumber: {
+  case State::InNumber: {
     if (c && std::isdigit(*c))
       return;
     if (c && *c == '.' && !is_at_end() && std::isdigit(peek())) {
-      state_ = LexState::InFloat;
+      state_ = State::InFloat;
       return;
     }
     if (c)
@@ -121,7 +136,7 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
                    std::stoll(file_.source.substr(start_, pos_ - start_)));
     break;
   }
-  case LexState::InFloat: {
+  case State::InFloat: {
     if (c && std::isdigit(*c))
       return;
     if (c)
@@ -130,7 +145,7 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
                    std::stod(file_.source.substr(start_, pos_ - start_)));
     break;
   }
-  case LexState::InString: {
+  case State::InString: {
     if (!c) {
       error("unterminated string literal");
       return;
@@ -141,7 +156,7 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
       return;
     }
     if (*c == '\\') {
-      state_ = LexState::InStringEscape;
+      state_ = State::InStringEscape;
       return;
     }
     if (*c == '"')
@@ -150,28 +165,28 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
                             LiteralKind::String});
     break;
   }
-  case LexState::InStringEscape: {
+  case State::InStringEscape: {
     if (!c) {
       error("unterminated string literal");
       return;
     }
-    state_ = LexState::InString;
+    state_ = State::InString;
     break;
   }
-  case LexState::InChar: {
+  case State::InChar: {
     if (!c) {
       error("unterminated char literal");
       return;
     }
     if (*c == '\\') {
-      state_ = LexState::InCharEscape;
+      state_ = State::InCharEscape;
       return;
     }
     char_value_ = *c;
-    state_ = LexState::InCharClose;
+    state_ = State::InCharClose;
     break;
   }
-  case LexState::InCharEscape: {
+  case State::InCharEscape: {
     if (!c) {
       error("unterminated char literal");
       return;
@@ -196,10 +211,10 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
       error("unknown escape sequence");
       return;
     }
-    state_ = LexState::InCharClose;
+    state_ = State::InCharClose;
     break;
   }
-  case LexState::InCharClose: {
+  case State::InCharClose: {
     if (!c || *c != '\'') {
       error("unterminated char literal — expected closing '");
       return;
@@ -207,13 +222,13 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
     emit_and_reset(tokens, char_value_);
     break;
   }
-  case LexState::InLineComment: {
+  case State::InLineComment: {
     if (!c || *c == '\n') {
       if (c) {
         line_++;
         line_start_ = pos_;
       }
-      state_ = LexState::Start;
+      state_ = State::Start;
       start_ = pos_;
     }
     break;
@@ -222,19 +237,8 @@ void Lexer::step(std::vector<Token> &tokens, std::optional<char> c) {
 }
 
 void Lexer::emit_and_reset(std::vector<Token> &tokens, TokenValue value) {
-  std::visit(
-      [&](auto &&v) {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::pair<TokenKind, std::string>>)
-          emit(tokens, v.first, std::move(v.second), current_span());
-        else if constexpr (std::is_same_v<T,
-                                          std::pair<std::string, LiteralKind>>)
-          emit(tokens, std::move(v.first), current_span(), v.second);
-        else
-          emit(tokens, std::forward<decltype(v)>(v), current_span());
-      },
-      value);
-  state_ = LexState::Start;
+  tokens.push_back(Token::make(std::move(value), current_span()));
+  state_ = State::Start;
   start_ = pos_;
 }
 
@@ -243,6 +247,6 @@ void Lexer::error(const std::string &msg) {
                   SourceLocation{file_.filename, file_.line_at(start_),
                                  file_.column_at(start_)},
                   file_.line_text_at(start_));
-  state_ = LexState::Start;
+  state_ = State::Start;
   start_ = pos_;
 }

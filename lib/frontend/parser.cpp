@@ -40,37 +40,34 @@ std::vector<ExprPtr> Parser::parse() {
 }
 
 ExprPtr Parser::parse_top_level() {
-  if (check_keyword("package"))
+  if (check(TokenKind::Keyword, "package"))
     return parse_package();
-  if (check_keyword("import"))
+  if (check(TokenKind::Keyword, "import"))
     return parse_import();
-  if (check_keyword("type"))
-    return parse_type_decl();
-  if (check_keyword("struct"))
-    return parse_struct_decl();
 
   bool is_public = false;
-  if (check_keyword("public")) {
+  if (check(TokenKind::Keyword, "public")) {
     advance();
     is_public = true;
-  } else if (check_keyword("private")) {
-    advance();
   }
-
-  if (check_keyword("let"))
+  if (check(TokenKind::Keyword, "type"))
+    return parse_type_decl(is_public);
+  if (check(TokenKind::Keyword, "struct"))
+    return parse_struct_decl(is_public);
+  if (check(TokenKind::Keyword, "let"))
     return parse_let(is_public);
   error("expected top-level declaration", current());
   throw std::runtime_error("parse error");
 }
 
 ExprPtr Parser::parse_package() {
-  Token start = advance(), name = expect_identifier();
+  Token start = advance(), name = expect(TokenKind::Identifier);
   return makeExpr(Package{name.text, Span::merge(start.span, name.span)});
 }
 
 ExprPtr Parser::parse_import() {
   Token start = advance();
-  if (!current().is_literal(LiteralKind::String)) {
+  if (!current().is(LiteralKind::String)) {
     error("expected string path after 'import'", current());
     throw std::runtime_error("parse error");
   }
@@ -79,80 +76,80 @@ ExprPtr Parser::parse_import() {
                          Span::merge(start.span, path.span)});
 }
 
-ExprPtr Parser::parse_type_decl() {
-  Token start = advance(), name = expect_identifier();
-  expect_operator("=");
+ExprPtr Parser::parse_type_decl(bool is_public) {
+  Token start = advance(), name = expect(TokenKind::Identifier);
+  expect(TokenKind::Operator, "=");
   std::vector<TypeVariant> variants;
   variants.push_back(parse_type_variant());
-  while (match_operator("|"))
+  while (match(TokenKind::Operator, "|"))
     variants.push_back(parse_type_variant());
-  return makeExpr(TypeDecl{name.text, std::move(variants),
+  return makeExpr(TypeDecl{name.text, std::move(variants), is_public,
                            Span::merge(start.span, variants.back().span)});
 }
 
 TypeVariant Parser::parse_type_variant() {
-  Token name = expect_identifier();
+  Token name = expect(TokenKind::Identifier);
   std::vector<std::string> fields;
-  if (match_delimiter("(")) {
-    while (!check_delimiter(")") && !is_at_end()) {
-      fields.push_back(expect_identifier().text);
-      if (!match_delimiter(","))
+  if (match(TokenKind::Delimiter, "(")) {
+    while (!check(TokenKind::Delimiter, ")") && !is_at_end()) {
+      fields.push_back(expect(TokenKind::Identifier).text);
+      if (!match(TokenKind::Delimiter, ","))
         break;
     }
-    expect_delimiter(")");
+    expect(TokenKind::Delimiter, ")");
   }
   return TypeVariant{name.text, std::move(fields), name.span};
 }
 
-ExprPtr Parser::parse_struct_decl() {
-  Token start = advance(), name = expect_identifier();
-  expect_delimiter("{");
+ExprPtr Parser::parse_struct_decl(bool is_public) {
+  Token start = advance(), name = expect(TokenKind::Identifier);
+  expect(TokenKind::Delimiter, "{");
   std::vector<StructField> fields;
   std::vector<StructMethod> methods;
 
-  while (!check_delimiter("}") && !is_at_end()) {
+  while (!check(TokenKind::Delimiter, "}") && !is_at_end()) {
     bool pub = false;
-    if (check_keyword("public")) {
+    if (check(TokenKind::Keyword, "public")) {
       advance();
       pub = true;
-    } else if (check_keyword("private")) {
-      advance();
     }
 
-    if (check_keyword("new")) {
+    if (check(TokenKind::Keyword, "new")) {
       Token t = advance();
       methods.push_back(StructMethod{t.text, parse_param_list(),
                                      take_block(parse_block()), pub, true,
                                      t.span});
     } else if (peek_is_method()) {
       advance();
-      Token t = expect_identifier();
+      Token t = expect(TokenKind::Identifier);
       methods.push_back(StructMethod{t.text, parse_param_list(),
                                      take_block(parse_block()), pub, false,
                                      t.span});
     } else {
-      Token t = expect_identifier();
+      Token t = expect(TokenKind::Identifier);
       fields.push_back(StructField{t.text, pub, t.span});
-      match_delimiter(",");
+      match(TokenKind::Delimiter, ",");
     }
   }
 
-  Token end = expect_delimiter("}");
+  Token end = expect(TokenKind::Delimiter, "}");
+
   return makeExpr(StructDecl{name.text, std::move(fields), std::move(methods),
-                             Span::merge(start.span, end.span)});
+                             is_public, Span::merge(start.span, end.span)});
 }
 
 ExprPtr Parser::parse_let(bool is_public) {
-  Token start = advance(), name = expect_identifier();
-  if (check_delimiter("(") || check_delimiter("()")) {
-    auto params = check_delimiter("()") ? (advance(), std::vector<Param>{})
-                                        : parse_param_list();
+  Token start = advance(), name = expect(TokenKind::Identifier);
+  if (check(TokenKind::Delimiter, "(") || check(TokenKind::Delimiter, "()")) {
+    auto params = check(TokenKind::Delimiter, "()")
+                      ? (advance(), std::vector<Param>{})
+                      : parse_param_list();
     Block body = take_block(parse_block());
     Span span = Span::merge(start.span, body.span);
     return makeExpr(Let{name.text, std::move(params), makeExpr(std::move(body)),
                         is_public, span});
   }
-  expect_operator("=");
+  expect(TokenKind::Operator, "=");
   ExprPtr value = parse_expr();
   Span span = Span::merge(start.span, spanOf(*value));
   return makeExpr(Let{name.text, {}, std::move(value), is_public, span});
@@ -162,7 +159,7 @@ ExprPtr Parser::parse_expr() { return parse_assignment(); }
 
 ExprPtr Parser::parse_assignment() {
   auto lhs = parse_binary(0);
-  if (check_operator("=")) {
+  if (check(TokenKind::Operator, "=")) {
     advance();
     auto rhs = parse_assignment();
     Span span = Span::merge(spanOf(*lhs), spanOf(*rhs));
@@ -187,7 +184,7 @@ ExprPtr Parser::parse_binary(int min_prec) {
 }
 
 ExprPtr Parser::parse_unary() {
-  if (check_operator("-") || check_operator("!")) {
+  if (check(TokenKind::Operator, "-") || check(TokenKind::Operator, "!")) {
     Token op = advance();
     auto rhs = parse_unary();
     Span span = Span::merge(op.span, spanOf(*rhs));
@@ -196,9 +193,9 @@ ExprPtr Parser::parse_unary() {
   }
   auto expr = parse_primary();
   while (true) {
-    if (check_delimiter("("))
+    if (check(TokenKind::Delimiter, "("))
       expr = parse_call(std::move(expr));
-    else if (check_delimiter("."))
+    else if (check(TokenKind::Delimiter, "."))
       expr = parse_field_access(std::move(expr));
     else
       break;
@@ -209,66 +206,66 @@ ExprPtr Parser::parse_unary() {
 ExprPtr Parser::parse_call(ExprPtr callee) {
   advance();
   std::vector<ExprPtr> args;
-  while (!check_delimiter(")") && !is_at_end()) {
+  while (!check(TokenKind::Operator, ")") && !is_at_end()) {
     args.push_back(parse_expr());
-    if (!match_delimiter(","))
+    if (!match(TokenKind::Delimiter, ","))
       break;
   }
-  Token close = expect_delimiter(")");
+  Token close = expect(TokenKind::Delimiter, ")");
   Span span = Span::merge(spanOf(*callee), close.span);
   return makeExpr(Call{std::move(callee), std::move(args), span});
 }
 
 ExprPtr Parser::parse_field_access(ExprPtr object) {
   advance();
-  Token field = expect_identifier();
+  Token field = expect(TokenKind::Identifier);
   Span span = Span::merge(spanOf(*object), field.span);
   return makeExpr(FieldAccess{std::move(object), field.text, span});
 }
 
 ExprPtr Parser::parse_primary() {
   const Token &tok = current();
-  if (tok.is_literal(LiteralKind::Integer)) {
+  if (tok.is(LiteralKind::Integer)) {
     Token t = advance();
     return makeExpr(IntLiteral{std::get<long long>(t.value), t.span});
   }
-  if (tok.is_literal(LiteralKind::Float)) {
+  if (tok.is(LiteralKind::Float)) {
     Token t = advance();
     return makeExpr(FloatLiteral{std::get<double>(t.value), t.span});
   }
-  if (tok.is_literal(LiteralKind::Char)) {
+  if (tok.is(LiteralKind::Char)) {
     Token t = advance();
     return makeExpr(CharLiteral{std::get<char>(t.value), t.span});
   }
-  if (tok.is_literal(LiteralKind::String)) {
+  if (tok.is(LiteralKind::String)) {
     Token t = advance();
     std::string s = std::get<std::string>(t.value);
     return makeExpr(CharList{std::vector<char>(s.begin(), s.end()), t.span});
   }
-  if (check_keyword("if"))
+  if (check(TokenKind::Keyword, "if"))
     return parse_if();
-  if (check_keyword("match"))
+  if (check(TokenKind::Keyword, "match"))
     return parse_match();
-  if (check_keyword("new"))
+  if (check(TokenKind::Keyword, "new"))
     return parse_new();
-  if (check_keyword("this")) {
+  if (check(TokenKind::Keyword, "this")) {
     Token t = advance();
     return makeExpr(This{t.span});
   }
-  if (check_keyword("let"))
+  if (check(TokenKind::Keyword, "let"))
     return parse_let(false);
-  if (check_operator("|"))
+  if (check(TokenKind::Operator, "|"))
     return parse_lambda();
-  if (check_delimiter("{"))
+  if (check(TokenKind::Delimiter, "{"))
     return parse_block();
-  if (check_delimiter("()")) {
+  if (check(TokenKind::Delimiter, "()")) {
     Token t = advance();
     return makeExpr(CharList{{}, t.span});
   }
-  if (check_delimiter("(")) {
+  if (check(TokenKind::Delimiter, "(")) {
     advance();
     auto e = parse_expr();
-    expect_delimiter(")");
+    expect(TokenKind::Delimiter, ")");
     return e;
   }
   if (tok.is(TokenKind::Identifier)) {
@@ -280,12 +277,14 @@ ExprPtr Parser::parse_primary() {
 }
 
 ExprPtr Parser::parse_block() {
-  Token start = expect_delimiter("{");
+  Token start = expect(TokenKind::Delimiter, "{");
   std::vector<ExprPtr> exprs;
-  while (!check_delimiter("}") && !is_at_end()) {
-    if (check_keyword("public") || check_keyword("private") ||
-        check_keyword("struct") || check_keyword("type") ||
-        check_keyword("import") || check_keyword("package")) {
+  while (!check(TokenKind::Delimiter, "}") && !is_at_end()) {
+    if (check(TokenKind::Keyword, "public") ||
+        check(TokenKind::Keyword, "struct") ||
+        check(TokenKind::Keyword, "type") ||
+        check(TokenKind::Keyword, "import") ||
+        check(TokenKind::Keyword, "package")) {
       error("unexpected token '" + current().text + "' — missing '}'?",
             current());
       break;
@@ -296,7 +295,7 @@ ExprPtr Parser::parse_block() {
       sync();
     }
   }
-  Token end = expect_delimiter("}");
+  Token end = expect(TokenKind::Delimiter, "}");
   return makeExpr(Block{std::move(exprs), Span::merge(start.span, end.span)});
 }
 
@@ -305,7 +304,7 @@ ExprPtr Parser::parse_if() {
   auto cond = parse_expr();
   Block then = take_block(parse_block());
   std::optional<Block> els;
-  if (match_keyword("else"))
+  if (match(TokenKind::Keyword, "else"))
     els = take_block(parse_block());
   Span span = els ? Span::merge(start.span, els->span)
                   : Span::merge(start.span, then.span);
@@ -315,89 +314,90 @@ ExprPtr Parser::parse_if() {
 ExprPtr Parser::parse_match() {
   Token start = advance();
   auto subject = parse_expr();
-  expect_delimiter("{");
+  expect(TokenKind::Delimiter, "{");
   std::vector<MatchArm> arms;
-  while (!check_delimiter("}") && !is_at_end()) {
+  while (!check(TokenKind::Delimiter, "}") && !is_at_end()) {
     arms.push_back(parse_match_arm());
-    match_delimiter(",");
+    match(TokenKind::Delimiter, ",");
   }
-  Token end = expect_delimiter("}");
+  Token end = expect(TokenKind::Delimiter, "}");
   return makeExpr(Match{std::move(subject), std::move(arms),
                         Span::merge(start.span, end.span)});
 }
 
 MatchArm Parser::parse_match_arm() {
   Span arm_span = current().span;
-  if (check_delimiter("_")) {
+  if (check(TokenKind::Delimiter, "_")) {
     advance();
-    expect_operator("=>");
+    expect(TokenKind::Operator, "=>");
     return MatchArm{"_", {}, parse_expr(), arm_span};
   }
-  if (current().is_literal(LiteralKind::Integer)) {
+  if (current().is(LiteralKind::Integer)) {
     Token t = advance();
-    expect_operator("=>");
+    expect(TokenKind::Operator, "=>");
     return MatchArm{std::to_string(std::get<long long>(t.value)),
                     {},
                     parse_expr(),
                     arm_span};
   }
-  Token name = expect_identifier();
+  Token name = expect(TokenKind::Identifier);
   std::vector<std::string> bindings;
-  if (match_delimiter("(")) {
-    while (!check_delimiter(")") && !is_at_end()) {
-      bindings.push_back(check_delimiter("_") ? (advance(), std::string("_"))
-                                              : expect_identifier().text);
-      if (!match_delimiter(","))
+  if (match(TokenKind::Delimiter, "(")) {
+    while (!check(TokenKind::Delimiter, ")") && !is_at_end()) {
+      bindings.push_back(check(TokenKind::Delimiter, "_")
+                             ? (advance(), std::string("_"))
+                             : expect(TokenKind::Identifier).text);
+      if (!match(TokenKind::Delimiter, ","))
         break;
     }
-    expect_delimiter(")");
+    expect(TokenKind::Delimiter, ")");
   }
-  expect_operator("=>");
+  expect(TokenKind::Operator, "=>");
   return MatchArm{name.text, std::move(bindings), parse_expr(), name.span};
 }
 
 ExprPtr Parser::parse_lambda() {
   Token start = advance();
   std::vector<Param> params;
-  while (!check_operator("|") && !is_at_end()) {
+  while (!check(TokenKind::Operator, "|") && !is_at_end()) {
     params.push_back(parse_param());
-    if (!match_delimiter(","))
+    if (!match(TokenKind::Delimiter, ","))
       break;
   }
-  expect_operator("|");
+  expect(TokenKind::Operator, "|");
   Block body = take_block(parse_block());
   return makeExpr(Lambda{std::move(params), std::move(body),
                          Span::merge(start.span, body.span)});
 }
 
 ExprPtr Parser::parse_new() {
-  Token start = advance(), name = expect_identifier();
-  expect_delimiter("(");
+  Token start = advance(), name = expect(TokenKind::Identifier);
+  expect(TokenKind::Delimiter, "(");
   std::vector<ExprPtr> args;
-  while (!check_delimiter(")") && !is_at_end()) {
+  while (!check(TokenKind::Delimiter, ")") && !is_at_end()) {
     args.push_back(parse_expr());
-    if (!match_delimiter(","))
+    if (!match(TokenKind::Delimiter, ","))
       break;
   }
-  Token end = expect_delimiter(")");
+  Token end = expect(TokenKind::Delimiter, ")");
   return makeExpr(
       New{name.text, std::move(args), Span::merge(start.span, end.span)});
 }
 
 Param Parser::parse_param() {
-  Token t = expect_identifier();
+  Token t = expect(TokenKind::Identifier);
   return Param{t.text, t.span};
 }
 
 std::vector<Param> Parser::parse_param_list() {
-  expect_delimiter("(");
+  expect(TokenKind::Delimiter, "(");
   std::vector<Param> params;
-  while (!check_delimiter(")") && !is_at_end()) {
+  while (!check(TokenKind::Delimiter, ")") && !is_at_end()) {
     params.push_back(parse_param());
-    if (!match_delimiter(","))
+    if (!match(TokenKind::Delimiter, ","))
       break;
   }
-  expect_delimiter(")");
+  expect(TokenKind::Delimiter, ")");
   return params;
 }
 
@@ -412,10 +412,12 @@ void Parser::sync() {
   if (!is_at_end())
     advance();
   while (!is_at_end()) {
-    if (check_keyword("public") || check_keyword("private") ||
-        check_keyword("let") || check_keyword("type") ||
-        check_keyword("struct") || check_keyword("import") ||
-        check_keyword("package") || check_delimiter("}"))
+    if (check(TokenKind::Keyword, "public") ||
+        check(TokenKind::Keyword, "let") || check(TokenKind::Keyword, "type") ||
+        check(TokenKind::Keyword, "struct") ||
+        check(TokenKind::Keyword, "import") ||
+        check(TokenKind::Keyword, "package") ||
+        check(TokenKind::Delimiter, "}"))
       return;
     advance();
   }

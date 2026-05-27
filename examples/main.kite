@@ -52,10 +52,9 @@ public let unwrap_or(opt, default) {
     }
 }
 
-struct Point {
-    public x,
-    public y,
-    private id,
+public struct Point {
+    public x, y,
+    id,
 
     public new(x, y) {
         this.x = x

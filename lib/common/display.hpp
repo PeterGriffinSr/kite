@@ -2,7 +2,6 @@
 
 #include <frontend/ast.hpp>
 #include <frontend/token.hpp>
-#include <string>
 
 inline std::string to_string(BinaryOp op) {
   switch (op) {
