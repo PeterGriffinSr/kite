@@ -17,6 +17,10 @@ protected:
     return i < size_ ? data_[i] : data_[size_ - 1];
   }
   bool is_at_end() const { return pos_ >= size_; }
+  void putback() {
+    if (pos_ > 0)
+      --pos_;
+  }
   T advance() { return pos_ < size_ ? data_[pos_++] : data_[size_ - 1]; }
   bool match(const T &expected) {
     if (is_at_end() || data_[pos_] != expected)
